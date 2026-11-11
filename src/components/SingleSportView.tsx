@@ -118,24 +118,33 @@ export const SingleSportView: React.FC<SingleSportViewProps> = ({
 
   const getJac = (jacId: string) => jacs.find(j => j.id === jacId);
 
-  // Available JACs registered in this sport
-  const registeredJacsInThisSport = useMemo(() => {
-    const jacIds = new Set(sportRegistrations.map(r => r.jacId));
-    if (jacIds.size > 0) {
-      return jacs.filter(j => jacIds.has(j.id));
+  // Eligible registrations and JACs strictly registered for this sport and branch in modal
+  const eligibleModalRegistrations = useMemo(() => {
+    const byBranch = sportRegistrations.filter(r => r.branch === formData.branch);
+    return byBranch.length > 0 ? byBranch : sportRegistrations;
+  }, [sportRegistrations, formData.branch]);
+
+  const eligibleModalJacs = useMemo(() => {
+    const registeredJacIds = new Set(eligibleModalRegistrations.map(r => r.jacId));
+    if (editingMatch) {
+      registeredJacIds.add(editingMatch.teamA.jacId);
+      registeredJacIds.add(editingMatch.teamB.jacId);
     }
-    return jacs;
-  }, [sportRegistrations, jacs]);
+    return jacs.filter(j => registeredJacIds.has(j.id));
+  }, [jacs, eligibleModalRegistrations, editingMatch]);
 
   // Open modal to schedule a new match
   const handleOpenNewMatchModal = () => {
     setEditingMatch(null);
     const defaultVenue = currentSport.scenarios?.[0] || 'Coliseo INDESA Sabaneta';
-    const teamA = registeredJacsInThisSport[0]?.id || jacs[0]?.id || '';
-    const teamB = registeredJacsInThisSport[1]?.id || jacs[1]?.id || '';
+    const chosenBranch = currentSport.branches[0] || 'Masculino';
+    const branchRegs = sportRegistrations.filter(r => r.branch === chosenBranch);
+    const targetRegs = branchRegs.length > 0 ? branchRegs : sportRegistrations;
+    const teamA = targetRegs[0]?.jacId || '';
+    const teamB = targetRegs[1]?.jacId || '';
 
     setFormData({
-      branch: currentSport.branches[0] || 'Masculino',
+      branch: chosenBranch,
       round: 'Fase de Grupos - Fecha 1',
       date: '2026-11-28',
       time: '18:30',
@@ -879,7 +888,17 @@ export const SingleSportView: React.FC<SingleSportViewProps> = ({
                   </label>
                   <select
                     value={formData.branch}
-                    onChange={(e) => setFormData({ ...formData, branch: e.target.value as SportBranch })}
+                    onChange={(e) => {
+                      const newBranch = e.target.value as SportBranch;
+                      const branchRegs = sportRegistrations.filter(r => r.branch === newBranch);
+                      const targetRegs = branchRegs.length > 0 ? branchRegs : sportRegistrations;
+                      setFormData({
+                        ...formData,
+                        branch: newBranch,
+                        teamAJacId: targetRegs[0]?.jacId || '',
+                        teamBJacId: targetRegs[1]?.jacId || ''
+                      });
+                    }}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-semibold text-slate-800"
                   >
                     {currentSport.branches.map(b => (
@@ -979,48 +998,84 @@ export const SingleSportView: React.FC<SingleSportViewProps> = ({
                 )}
               </div>
 
-              {/* Teams Matchup (Team A vs Team B) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    Equipo A (JAC Local):
+              {/* Teams Matchup (Team A vs Team B) - ONLY REGISTERED TEAMS FOR THIS SPORT */}
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="block text-slate-800 font-black text-xs">
+                    Equipos Inscritos en {currentSport.name} ({formData.branch}):
                   </label>
-                  <select
-                    value={formData.teamAJacId}
-                    onChange={(e) => setFormData({ ...formData, teamAJacId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900"
-                  >
-                    <option value="">-- Seleccionar JAC A --</option>
-                    {jacs.map(j => {
-                      const isRegistered = sportRegistrations.some(r => r.jacId === j.id);
-                      return (
-                        <option key={j.id} value={j.id}>
-                          {j.name} {isRegistered ? '✓' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
+                  <span className="text-[11px] bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full font-black">
+                    {eligibleModalJacs.length} equipo(s) disponible(s)
+                  </span>
                 </div>
 
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    Equipo B (JAC Visitante):
-                  </label>
-                  <select
-                    value={formData.teamBJacId}
-                    onChange={(e) => setFormData({ ...formData, teamBJacId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900"
-                  >
-                    <option value="">-- Seleccionar JAC B --</option>
-                    {jacs.map(j => {
-                      const isRegistered = sportRegistrations.some(r => r.jacId === j.id);
-                      return (
-                        <option key={j.id} value={j.id}>
-                          {j.name} {isRegistered ? '✓' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
+                {/* Warning if less than 2 teams */}
+                {eligibleModalJacs.length === 0 ? (
+                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong>No hay equipos inscritos en {currentSport.name} ({formData.branch}).</strong>
+                      <p className="text-[11px] text-amber-800 mt-0.5">
+                        Para programar un encuentro, primero debes inscribir al menos 2 equipos en el módulo de <strong>Inscripciones</strong>.
+                      </p>
+                    </div>
+                  </div>
+                ) : eligibleModalJacs.length === 1 ? (
+                  <div className="p-3 bg-blue-50 border border-blue-300 rounded-xl text-blue-900 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong>Solo hay 1 equipo inscrito ({eligibleModalJacs[0].name}).</strong>
+                      <p className="text-[11px] text-blue-800 mt-0.5">
+                        Se requieren mínimo 2 equipos inscritos en este deporte para poder disputar un cruce o partido oficial.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">
+                      Equipo A (JAC Local):
+                    </label>
+                    <select
+                      value={formData.teamAJacId}
+                      required
+                      onChange={(e) => setFormData({ ...formData, teamAJacId: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900"
+                    >
+                      <option value="">-- Seleccionar Equipo Inscrito A --</option>
+                      {eligibleModalJacs.map(j => {
+                        const reg = eligibleModalRegistrations.find(r => r.jacId === j.id);
+                        return (
+                          <option key={j.id} value={j.id}>
+                            {j.name} {reg?.teamName ? `(${reg.teamName})` : ''} ✓
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">
+                      Equipo B (JAC Visitante):
+                    </label>
+                    <select
+                      value={formData.teamBJacId}
+                      required
+                      onChange={(e) => setFormData({ ...formData, teamBJacId: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900"
+                    >
+                      <option value="">-- Seleccionar Equipo Inscrito B --</option>
+                      {eligibleModalJacs.map(j => {
+                        const reg = eligibleModalRegistrations.find(r => r.jacId === j.id);
+                        return (
+                          <option key={j.id} value={j.id}>
+                            {j.name} {reg?.teamName ? `(${reg.teamName})` : ''} ✓
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -1058,7 +1113,12 @@ export const SingleSportView: React.FC<SingleSportViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-md cursor-pointer active:scale-95"
+                  disabled={eligibleModalJacs.length < 2}
+                  className={`px-5 py-2 font-black rounded-xl shadow-md transition ${
+                    eligibleModalJacs.length < 2
+                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-95'
+                  }`}
                 >
                   {editingMatch ? 'Guardar Cambios de Programación' : 'Programar Encuentro'}
                 </button>

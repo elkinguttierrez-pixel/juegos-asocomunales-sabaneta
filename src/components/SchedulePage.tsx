@@ -17,7 +17,8 @@ import {
   CheckCircle2, 
   Flame, 
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  AlertCircle
 } from 'lucide-react';
 import { exportToExcel } from '../utils/exportExcel';
 
@@ -75,6 +76,22 @@ export const SchedulePage: React.FC<SchedulePageProps> = ({
   const getJac = (jacId: string) => jacs.find(j => j.id === jacId);
   const getSport = (sportId: string) => OFFICIAL_SPORTS.find(s => s.id === sportId);
 
+  // Eligible registrations and JACs strictly registered for this sport and branch in modal
+  const eligibleModalRegistrations = useMemo(() => {
+    const bySport = registrations.filter(r => r.sportId === formData.sportId);
+    const byBranch = bySport.filter(r => r.branch === formData.branch);
+    return byBranch.length > 0 ? byBranch : bySport;
+  }, [registrations, formData.sportId, formData.branch]);
+
+  const eligibleModalJacs = useMemo(() => {
+    const registeredJacIds = new Set(eligibleModalRegistrations.map(r => r.jacId));
+    if (editingMatch) {
+      registeredJacIds.add(editingMatch.teamA.jacId);
+      registeredJacIds.add(editingMatch.teamB.jacId);
+    }
+    return jacs.filter(j => registeredJacIds.has(j.id));
+  }, [jacs, eligibleModalRegistrations, editingMatch]);
+
   // Filtered matches
   const filteredMatches = useMemo(() => {
     return matches.filter(m => {
@@ -96,15 +113,18 @@ export const SchedulePage: React.FC<SchedulePageProps> = ({
     const chosenSportId = sportIdParam || (selectedSportFilter !== 'all' ? selectedSportFilter : 'baloncesto');
     const sportObj = getSport(chosenSportId);
     const defaultVenue = sportObj?.scenarios?.[0] || 'Coliseo Polideportivo INDESA Zona Sur';
+    const chosenBranch = sportObj?.branches[0] || 'Masculino';
 
-    // Filter JACs with registered teams in this sport
+    // Filter JACs strictly with registered teams in this sport & branch
     const sportRegs = registrations.filter(r => r.sportId === chosenSportId);
-    const jacA = sportRegs[0]?.jacId || jacs[0]?.id || '';
-    const jacB = sportRegs[1]?.jacId || jacs[1]?.id || '';
+    const branchRegs = sportRegs.filter(r => r.branch === chosenBranch);
+    const targetRegs = branchRegs.length > 0 ? branchRegs : sportRegs;
+    const jacA = targetRegs[0]?.jacId || '';
+    const jacB = targetRegs[1]?.jacId || '';
 
     setFormData({
       sportId: chosenSportId,
-      branch: sportObj?.branches[0] || 'Masculino',
+      branch: chosenBranch,
       round: 'Fase de Grupos - Fecha 1',
       date: '2026-11-28',
       time: '19:00',
@@ -522,18 +542,31 @@ export const SchedulePage: React.FC<SchedulePageProps> = ({
                     onChange={(e) => {
                       const spId = e.target.value;
                       const spObj = getSport(spId);
+                      const newBranch = spObj?.branches[0] || 'Masculino';
+                      const newVenue = spObj?.scenarios?.[0] || 'Coliseo Polideportivo INDESA';
+                      const sportRegs = registrations.filter(r => r.sportId === spId);
+                      const branchRegs = sportRegs.filter(r => r.branch === newBranch);
+                      const targetRegs = branchRegs.length > 0 ? branchRegs : sportRegs;
+
                       setFormData({
                         ...formData,
                         sportId: spId,
-                        branch: spObj?.branches[0] || 'Masculino',
-                        venue: spObj?.scenarios?.[0] || 'Coliseo Polideportivo INDESA'
+                        branch: newBranch,
+                        venue: newVenue,
+                        teamAJacId: targetRegs[0]?.jacId || '',
+                        teamBJacId: targetRegs[1]?.jacId || ''
                       });
                     }}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900"
                   >
-                    {OFFICIAL_SPORTS.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
+                    {OFFICIAL_SPORTS.map(s => {
+                      const count = registrations.filter(r => r.sportId === s.id).length;
+                      return (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({count} equipos inscritos)
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -541,7 +574,19 @@ export const SchedulePage: React.FC<SchedulePageProps> = ({
                   <label className="block text-slate-700 font-bold mb-1">Rama / Categoría:</label>
                   <select
                     value={formData.branch}
-                    onChange={(e) => setFormData({ ...formData, branch: e.target.value as SportBranch })}
+                    onChange={(e) => {
+                      const newBranch = e.target.value as SportBranch;
+                      const sportRegs = registrations.filter(r => r.sportId === formData.sportId);
+                      const branchRegs = sportRegs.filter(r => r.branch === newBranch);
+                      const targetRegs = branchRegs.length > 0 ? branchRegs : sportRegs;
+
+                      setFormData({
+                        ...formData,
+                        branch: newBranch,
+                        teamAJacId: targetRegs[0]?.jacId || '',
+                        teamBJacId: targetRegs[1]?.jacId || ''
+                      });
+                    }}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-semibold text-slate-800"
                   >
                     {getSport(formData.sportId)?.branches.map(b => (
@@ -632,44 +677,80 @@ export const SchedulePage: React.FC<SchedulePageProps> = ({
                 )}
               </div>
 
-              {/* Teams Matchup */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">Equipo A (JAC Local):</label>
-                  <select
-                    value={formData.teamAJacId}
-                    onChange={(e) => setFormData({ ...formData, teamAJacId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900"
-                  >
-                    <option value="">-- Seleccionar JAC A --</option>
-                    {jacs.map(j => {
-                      const hasReg = registrations.some(r => r.sportId === formData.sportId && r.jacId === j.id);
-                      return (
-                        <option key={j.id} value={j.id}>
-                          {j.name} {hasReg ? '✓' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
+              {/* Teams Matchup - ONLY REGISTERED TEAMS FOR THIS SPORT */}
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="block text-slate-800 font-black text-xs">
+                    Equipos Inscritos en {getSport(formData.sportId)?.name} ({formData.branch}):
+                  </label>
+                  <span className="text-[11px] bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full font-black">
+                    {eligibleModalJacs.length} equipo(s) disponible(s)
+                  </span>
                 </div>
 
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">Equipo B (JAC Visitante):</label>
-                  <select
-                    value={formData.teamBJacId}
-                    onChange={(e) => setFormData({ ...formData, teamBJacId: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900"
-                  >
-                    <option value="">-- Seleccionar JAC B --</option>
-                    {jacs.map(j => {
-                      const hasReg = registrations.some(r => r.sportId === formData.sportId && r.jacId === j.id);
-                      return (
-                        <option key={j.id} value={j.id}>
-                          {j.name} {hasReg ? '✓' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
+                {/* Warning if less than 2 teams */}
+                {eligibleModalJacs.length === 0 ? (
+                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong>No hay equipos inscritos en {getSport(formData.sportId)?.name} ({formData.branch}).</strong>
+                      <p className="text-[11px] text-amber-800 mt-0.5">
+                        Para programar un encuentro en este deporte, primero debes inscribir al menos 2 equipos en el módulo de <strong>Inscripciones</strong>.
+                      </p>
+                    </div>
+                  </div>
+                ) : eligibleModalJacs.length === 1 ? (
+                  <div className="p-3 bg-blue-50 border border-blue-300 rounded-xl text-blue-900 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong>Solo hay 1 equipo inscrito ({eligibleModalJacs[0].name}).</strong>
+                      <p className="text-[11px] text-blue-800 mt-0.5">
+                        Se requieren mínimo 2 equipos inscritos en este deporte para poder disputar un cruce o partido oficial.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Equipo A (JAC Local):</label>
+                    <select
+                      value={formData.teamAJacId}
+                      required
+                      onChange={(e) => setFormData({ ...formData, teamAJacId: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900"
+                    >
+                      <option value="">-- Seleccionar Equipo Inscrito A --</option>
+                      {eligibleModalJacs.map(j => {
+                        const reg = eligibleModalRegistrations.find(r => r.jacId === j.id);
+                        return (
+                          <option key={j.id} value={j.id}>
+                            {j.name} {reg?.teamName ? `(${reg.teamName})` : ''} ✓
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Equipo B (JAC Visitante):</label>
+                    <select
+                      value={formData.teamBJacId}
+                      required
+                      onChange={(e) => setFormData({ ...formData, teamBJacId: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 font-bold text-slate-900"
+                    >
+                      <option value="">-- Seleccionar Equipo Inscrito B --</option>
+                      {eligibleModalJacs.map(j => {
+                        const reg = eligibleModalRegistrations.find(r => r.jacId === j.id);
+                        return (
+                          <option key={j.id} value={j.id}>
+                            {j.name} {reg?.teamName ? `(${reg.teamName})` : ''} ✓
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -705,7 +786,12 @@ export const SchedulePage: React.FC<SchedulePageProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-md cursor-pointer active:scale-95"
+                  disabled={eligibleModalJacs.length < 2}
+                  className={`px-5 py-2 font-black rounded-xl shadow-md transition ${
+                    eligibleModalJacs.length < 2
+                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-95'
+                  }`}
                 >
                   {editingMatch ? 'Guardar Cambios' : 'Programar Encuentro'}
                 </button>
