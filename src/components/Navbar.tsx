@@ -9,14 +9,15 @@ import {
   FileSpreadsheet, 
   Download, 
   Flame, 
-  Sparkles,
-  Menu,
-  X,
-  BookOpen,
-  RotateCcw,
-  Home,
-  CalendarClock
+  Sparkles, 
+  Menu, 
+  X, 
+  BookOpen, 
+  RotateCcw, 
+  Home, 
+  CalendarClock 
 } from 'lucide-react';
+import { RealtimeStatusBadge } from './RealtimeStatusBadge';
 
 interface NavbarProps {
   activeTab: string;
@@ -28,6 +29,8 @@ interface NavbarProps {
   };
   onExportBackup: () => void;
   onLoadSimulation?: () => void;
+  isCoordinator: boolean;
+  setIsCoordinator: (val: boolean) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -35,7 +38,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   stats,
   onExportBackup,
-  onLoadSimulation
+  onLoadSimulation,
+  isCoordinator,
+  setIsCoordinator
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -70,6 +75,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             <div className="flex items-center space-x-2 text-xs">
+              <RealtimeStatusBadge isCoordinator={isCoordinator} setIsCoordinator={setIsCoordinator} />
+
               {onLoadSimulation && (
                 <button
                   onClick={onLoadSimulation}

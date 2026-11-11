@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   getStoredJACs, 
   saveJACs, 
@@ -12,6 +12,7 @@ import {
   resetToInitialData,
   loadFullSimulationDatabase
 } from './utils/storage';
+import { realtime } from './services/realtime';
 import { JAC, Athlete, SportRegistration, MatchSchedule, SportBranch } from './types';
 import { Navbar } from './components/Navbar';
 import { HomePage } from './components/HomePage';
@@ -37,6 +38,65 @@ export function App() {
   const [athletes, setAthletes] = useState<Athlete[]>(getStoredAthletes);
   const [registrations, setRegistrations] = useState<SportRegistration[]>(getStoredRegistrations);
   const [matches, setMatches] = useState<MatchSchedule[]>(getStoredMatches);
+  const [isCoordinator, setIsCoordinator] = useState<boolean>(() => realtime.isCoordinatorLoggedIn());
+
+  // Real-time synchronization subscriptions
+  useEffect(() => {
+    // 1. Initial full state from server
+    const unsubInit = realtime.onInitData((state) => {
+      if (state.matches !== undefined) {
+        setMatches(state.matches);
+        saveMatches(state.matches);
+      }
+      if (state.registrations && state.registrations.length > 0) {
+        setRegistrations(state.registrations);
+        saveRegistrations(state.registrations);
+      }
+      if (state.athletes && state.athletes.length > 0) {
+        setAthletes(state.athletes);
+        saveAthletes(state.athletes);
+      }
+      if (state.jacs && state.jacs.length > 0) {
+        setJacs(state.jacs);
+        saveJACs(state.jacs);
+      }
+    });
+
+    // 2. Real-time match created by any coordinator
+    const unsubCreated = realtime.onMatchCreated((newMatch) => {
+      setMatches(prev => {
+        const exists = prev.some(m => m.id === newMatch.id);
+        const updated = exists ? prev : [newMatch, ...prev];
+        saveMatches(updated);
+        return updated;
+      });
+    });
+
+    // 3. Real-time match schedule or score updated
+    const unsubUpdated = realtime.onMatchUpdated((updatedMatch) => {
+      setMatches(prev => {
+        const updated = prev.map(m => m.id === updatedMatch.id ? updatedMatch : m);
+        saveMatches(updated);
+        return updated;
+      });
+    });
+
+    // 4. Real-time match deleted
+    const unsubDeleted = realtime.onMatchDeleted((deletedId) => {
+      setMatches(prev => {
+        const updated = prev.filter(m => m.id !== deletedId);
+        saveMatches(updated);
+        return updated;
+      });
+    });
+
+    return () => {
+      unsubInit();
+      unsubCreated();
+      unsubUpdated();
+      unsubDeleted();
+    };
+  }, []);
 
   // Modals state
   const [selectedRosterToPrint, setSelectedRosterToPrint] = useState<SportRegistration | null>(null);
@@ -98,12 +158,18 @@ export function App() {
     const updated = [newMatch, ...matches];
     setMatches(updated);
     saveMatches(updated);
+    // Broadcast via realtime WebSocket
+    realtime.createMatch(newMatch);
   };
 
   const handleUpdateMatchSchedule = (matchId: string, updates: Partial<MatchSchedule>) => {
     const updated = matches.map(m => m.id === matchId ? { ...m, ...updates } : m);
     setMatches(updated);
     saveMatches(updated);
+    const target = updated.find(m => m.id === matchId);
+    if (target) {
+      realtime.updateMatch(target);
+    }
   };
 
   const handleDeleteMatch = (matchId: string) => {
@@ -111,6 +177,7 @@ export function App() {
       const updated = matches.filter(m => m.id !== matchId);
       setMatches(updated);
       saveMatches(updated);
+      realtime.deleteMatch(matchId);
     }
   };
 
@@ -135,6 +202,8 @@ export function App() {
     });
     setMatches(updated);
     saveMatches(updated);
+    // Broadcast score and live status in real time
+    realtime.scoreMatch(matchId, scoreA, scoreB, status, winnerJacId);
   };
 
   const handleSelectSportForRegistration = (_sportId: string, _branch: SportBranch) => {
@@ -176,6 +245,8 @@ export function App() {
         }}
         onExportBackup={exportAllDataJSON}
         onLoadSimulation={handleLoadSimulation}
+        isCoordinator={isCoordinator}
+        setIsCoordinator={setIsCoordinator}
       />
 
       {/* Main Container */}
