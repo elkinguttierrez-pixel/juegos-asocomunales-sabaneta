@@ -16,7 +16,7 @@ const KEYS = {
   MEDALS: 'asocomunales_medals_v1',
 };
 
-const CURRENT_VERSION = 'v6_base_oficial_asocomunales_2026';
+const CURRENT_VERSION = 'v7_fixture_limpio_cero_partidos_2026';
 
 // Auto-upgrade if old mock data exists with fewer than 10 registrations
 const checkAndUpgradeStorage = () => {
